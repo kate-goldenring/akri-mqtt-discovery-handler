@@ -278,9 +278,9 @@ impl DiscoveryHandler for DiscoveryHandlerImpl {
                                     Device {
                                         id: topic.clone(),
                                         properties: HashMap::from([
-                                            ("MQTT_TOPIC".to_string(), topic.clone()),
+                                            ("SPIN_VARIABLE_MQTT_TOPIC".to_string(), topic.clone()),
                                             (
-                                                "MQTT_BROKER_URI".to_string(),
+                                                "SPIN_VARIABLE_MQTT_BROKER_URI".to_string(),
                                                 mqtt_uri_string.clone(),
                                             ),
                                         ]),
