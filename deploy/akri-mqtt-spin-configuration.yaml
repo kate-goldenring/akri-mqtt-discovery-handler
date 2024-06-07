@@ -1,0 +1,38 @@
+apiVersion: akri.sh/v0
+kind: Configuration
+metadata:
+  name: akri-mqtt-device
+spec:
+  discoveryHandler:
+    name: mqtt
+    discoveryDetails: |+
+        mqttBrokerUri: "tcp://192.168.1.14:1883"
+        topics: ["hello", "goodbye", "wow"]
+        timeoutSeconds: 60
+  brokerSpec:
+    brokerPodSpec:
+      runtimeClassName: wasmtime-spin-v2
+      containers:
+      - name: akri-mqtt-broker
+        image: "ttl.sh/spin-mqtt-app:48h"
+        command: ["/"]
+        ports:
+        - containerPort: 80
+        imagePullPolicy: Always
+        resources:
+          limits:
+            "{{PLACEHOLDER}}" : "1"
+  instanceServiceSpec:
+    ports:
+    - name: grpc
+      port: 80
+      targetPort: 8083
+  configurationServiceSpec:
+    ports:
+    - name: grpc
+      port: 80
+      targetPort: 8083
+  brokerProperties: {}
+    # SPIN_VARIABLE_MQTT_TOPIC: "hello"
+    # SPIN_VARIABLE_MQTT_BROKER_URI": "tcp://192.168.1.14:1883"
+  capacity: 5

@@ -73,17 +73,20 @@ fn authenticate_mqtt(
             raw_username
                 .clone()
                 .vec
-                .ok_or(invalid_arg("username is empty"))?,
         )
         .map_err(|e| invalid_arg(format!("unable to parse username: {}", e)))?;
         let password = String::from_utf8(
             raw_password
                 .clone()
                 .vec
-                .ok_or(invalid_arg("password is empty"))?,
         )
         .map_err(|e| invalid_arg(format!("unable to parse password: {}", e)))?;
-        mqttoptions.set_credentials(username, password);
+        if !username.is_empty() && !password.is_empty() {
+            mqttoptions.set_credentials(username, password);
+        } else {
+            info!("No username or password provided -- skipping authentication")
+        }
+        
     }
     Ok(())
 }
@@ -95,9 +98,7 @@ fn get_certificate_and_key(
         let raw_key = properties
             .get("mqtt_broker_key")
             .ok_or(invalid_arg("A certificate got specified, but no key given"))?
-            .vec
-            .as_ref()
-            .ok_or(invalid_arg("A certificate got specified, but no key given"))?;
+            .vec.clone();
         // Allow key to be either PKCS8, EC key or RSA key
         let key_pem = PrivateKey(
             rustls_pemfile::pkcs8_private_keys(&mut &raw_key[..])
@@ -115,8 +116,7 @@ fn get_certificate_and_key(
                 .ok_or(invalid_arg("No key found"))?
                 .clone(),
         );
-        let certs_pem_raw = raw_certificate.vec.as_ref().unwrap().clone();
-        let certificates_pem: Vec<Certificate> = rustls_pemfile::certs(&mut &certs_pem_raw[..])
+        let certificates_pem: Vec<Certificate> = rustls_pemfile::certs(&mut &raw_certificate.vec[..])
             .map_err(|e| invalid_arg(format!("Unable to parse certs: {}", e)))?
             .into_iter()
             .map(Certificate)
@@ -136,10 +136,11 @@ fn setup_tls(
     }
     let mut root_cert_store = RootCertStore::empty();
     if let Some(raw_ca) = properties.get("mqtt_broker_ca") {
+        if raw_ca.vec.is_empty() {
+            return Err(invalid_arg("CA is invalid"));
+        }
         let ca = rustls_pemfile::certs(
-            &mut &raw_ca.vec.as_ref().ok_or(invalid_arg("CA key is empty"))?[..],
-        )
-        .map_err(|e| invalid_arg(format!("CA is invalid: {}", e)))?;
+            &mut &raw_ca.vec[..])?;
         root_cert_store.add_parsable_certificates(&ca[..]);
     } else {
         let root_certs = load_native_certs().unwrap();
@@ -173,6 +174,10 @@ impl DiscoveryHandler for DiscoveryHandlerImpl {
         let discovery_handler_config: MqttDiscoveryDetails =
             deserialize_discovery_details(&discover_request.discovery_details)
                 .map_err(|e| tonic::Status::new(tonic::Code::InvalidArgument, format!("{}", e)))?;
+
+        info!("discover - mqtt_broker_uri: {}", discovery_handler_config.mqtt_broker_uri);
+        info!("discover - topics: {:?}", discovery_handler_config.topics);
+        info!("discover - timeout_seconds: {}", discovery_handler_config.timeout_seconds);
 
         let mut mqttoptions = MqttOptions::try_from(fill_client_id_if_needed(
             discovery_handler_config.mqtt_broker_uri.clone(),
@@ -209,6 +214,7 @@ impl DiscoveryHandler for DiscoveryHandlerImpl {
                 match mqtt_eventloop.poll().await {
                     Ok(Event::Incoming(Packet::Publish(notification))) => {
                         let topic = String::from_utf8(notification.topic.to_vec()).unwrap();
+                        info!("Received message on topic: {}", topic);
                         message_received_sender
                             .send(Action::Add(topic))
                             .await
@@ -272,6 +278,7 @@ impl DiscoveryHandler for DiscoveryHandlerImpl {
                         }
                         None => {
                             has_changed = true;
+                            info!("Adding device with topic: {}", topic);
                             discovered_devices.insert(
                                 topic.clone(),
                                 TimedDevice::new(
